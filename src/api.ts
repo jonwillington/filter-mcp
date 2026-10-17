@@ -10,6 +10,9 @@ export interface Env {
   /** filter-api's BUILD_KEY, so its per-address limit on detail pages doesn't count this Worker. */
   API_BUILD_KEY?: string;
   MCP_LIMITER?: RateLimit;
+  /** Set per request in src/index.ts: the assistant family calling (chatgpt, claude, …),
+   *  tagged onto every link so the sites' analytics can count the visits it sends. */
+  CLIENT?: string;
 }
 
 const PUBLIC_API = 'https://api.filter.coffee';
@@ -72,13 +75,23 @@ function slugMaps(site: CityConfig): Promise<SlugMaps> {
 
 const ROUTES: Record<SlugKind, string> = { shops: '/shop', brands: '/roaster', areas: '/area', events: '/guide/event' };
 
+/** A link to the city site, tagged with the assistant that sent the reader (Google Analytics
+ *  reads utm_source / utm_medium; ChatGPT adds its own utm_source, which wins). */
+export function siteLink(env: Env, url: string): string {
+  const u = new URL(url);
+  u.searchParams.set('utm_source', env.CLIENT ?? 'assistant');
+  u.searchParams.set('utm_medium', 'mcp');
+  return u.toString();
+}
+
 /** The page on the city site, as filter-city-web lib/slugs.ts `href` builds it. A record newer
  *  than the last site deploy has no slug yet and takes the /x fallback, which renders the same page. */
-export async function pageUrl(site: CityConfig, kind: SlugKind, id: string): Promise<string> {
+export async function pageUrl(env: Env, site: CityConfig, kind: SlugKind, id: string): Promise<string> {
   const slug = (await slugMaps(site))[kind]?.[id];
-  return slug
-    ? `${site.siteUrl}${ROUTES[kind]}/${slug}`
-    : `${site.siteUrl}/x?k=${kind}&id=${encodeURIComponent(id)}`;
+  return siteLink(
+    env,
+    slug ? `${site.siteUrl}${ROUTES[kind]}/${slug}` : `${site.siteUrl}/x?k=${kind}&id=${encodeURIComponent(id)}`,
+  );
 }
 
 /** The served city a v3 cityId belongs to, if any. */

@@ -66,10 +66,23 @@ async function operations(req: Request): Promise<{ method: string; tool: string;
   }
 }
 
+/** The assistant family, from the User-Agent (as ddbx-data/worker/mcp.ts clientFamily). */
+function clientFamily(userAgent: string | null): string {
+  const ua = (userAgent ?? '').toLowerCase();
+  if (/chatgpt|openai/.test(ua)) return 'chatgpt';
+  if (/claude|anthropic/.test(ua)) return 'claude';
+  if (/cursor/.test(ua)) return 'cursor';
+  if (/copilot|vscode|visual studio code/.test(ua)) return 'vscode';
+  if (/gemini|google/.test(ua)) return 'gemini';
+  if (/smithery/.test(ua)) return 'smithery';
+  return 'assistant';
+}
+
 async function handleMcp(req: Request, env: Env): Promise<Response> {
   const started = Date.now();
   const ops = await operations(req);
-  const server = buildServer(env);
+  const client = clientFamily(req.headers.get('user-agent'));
+  const server = buildServer({ ...env, CLIENT: client });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   let status = 500;
@@ -78,7 +91,6 @@ async function handleMcp(req: Request, env: Env): Promise<Response> {
     status = res.status;
     return res;
   } finally {
-    const client = (req.headers.get('user-agent') ?? '-').slice(0, 60);
     for (const op of ops.length ? ops : [{ method: '-', tool: '-', city: '-' }]) {
       console.log(JSON.stringify({ event: 'mcp_usage', ...op, status, ms: Date.now() - started, client }));
     }

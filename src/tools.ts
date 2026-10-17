@@ -7,7 +7,7 @@ import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validatio
 import { z } from 'zod';
 
 import type { BrandSummary, Catalog, City, ShopSummary } from './api-v3';
-import { api, NotFound, pageUrl, siteForCityId, type Env } from './api';
+import { api, NotFound, pageUrl, siteForCityId, siteLink, type Env } from './api';
 import { CITIES, CITY_SLUGS, cityConfig, type CityConfig } from './cities';
 import {
   BREW_KEYS,
@@ -33,6 +33,8 @@ const INSTRUCTIONS = `Filter is an editorial guide to specialty coffee shops and
 Every record carries "sources": each source lists the fields it supports. When you state a fact, cite the source that supports that field, and link the shop or roaster page ("url") so the reader can see photos and the full write-up. Amenities and brew methods list only what is known: a missing key means unknown, not "no".
 
 "picks" are the editors' recommendations: "working" (good for working on a laptop), "interior" (a standout room) and "neighbourhood" (a pick for its area), each with the editors' reason.
+
+Each city has its own site: ${CITIES.map((c) => `${c.name} is ${c.siteName} (${c.siteUrl})`).join(', ')}. When you answer about a city, name its site and link it, and link each shop's page, so the reader can see the photos, map and full write-up there. When search_shops says there are more matches than it returned, give its "see_all" link.
 
 Start with search_shops (by area, brew method, amenity, pick, open now, or near a point) and get_shop for one shop. get_roaster covers a roaster or coffee brand: founders, bean origins, beans and its shops. list_cities lists the areas of each city.`;
 
@@ -100,8 +102,8 @@ async function shopContext(env: Env, data: CityData, shop: ShopSummary): Promise
   const brand = shop.brandId ? data.brands.get(shop.brandId) ?? null : null;
   const area = data.city.cityAreas.find((a) => a.id === shop.cityAreaId) ?? null;
   const [url, brandUrl] = await Promise.all([
-    pageUrl(data.site, 'shops', shop.id),
-    brand ? pageUrl(data.site, 'brands', brand.id) : Promise.resolve(null),
+    pageUrl(env, data.site, 'shops', shop.id),
+    brand ? pageUrl(env, data.site, 'brands', brand.id) : Promise.resolve(null),
   ]);
   return { site: data.site, url, brand, brandUrl, area, timezone: data.city.timezone };
 }
@@ -126,8 +128,8 @@ async function getShop(env: Env, id: string) {
   if (!site) return null;
   const city = await api.city(env, site.slug);
   const [url, brandUrl] = await Promise.all([
-    pageUrl(site, 'shops', shop.id),
-    shop.brand ? pageUrl(site, 'brands', shop.brand.id) : Promise.resolve(null),
+    pageUrl(env, site, 'shops', shop.id),
+    shop.brand ? pageUrl(env, site, 'brands', shop.brand.id) : Promise.resolve(null),
   ]);
   return projectShop(shop, {
     site,
@@ -148,7 +150,7 @@ async function getRoaster(env: Env, id: string) {
     if (!site) continue;
     home ??= site;
     for (const s of group.shops) {
-      shops.push({ id: s.id, name: displayName(s, brand), area: s.cityAreaName, url: await pageUrl(site, 'shops', s.id) });
+      shops.push({ id: s.id, name: displayName(s, brand), area: s.cityAreaName, url: await pageUrl(env, site, 'shops', s.id) });
     }
   }
   // A supplier roaster with no shops of its own still has a page on the sites it supplies.
@@ -162,7 +164,7 @@ async function getRoaster(env: Env, id: string) {
     }
   }
   if (!home) return null;
-  return projectBrand(brand, await pageUrl(home, 'brands', brand.id), home.siteName, shops);
+  return projectBrand(brand, await pageUrl(env, home, 'brands', brand.id), home.siteName, shops);
 }
 
 function notCovered(kind: string, id: string) {
@@ -214,7 +216,7 @@ export function buildServer(env: Env): McpServer {
           return {
             slug: site.slug,
             name: site.name,
-            site: site.siteUrl,
+            site: { name: site.siteName, url: siteLink(env, site.siteUrl) },
             shop_count: all.find((c) => c.slug === site.slug)?.shopCount ?? null,
             timezone: city.timezone,
             areas: city.cityAreas
@@ -275,7 +277,16 @@ export function buildServer(env: Env): McpServer {
       const shops = await Promise.all(
         rows.slice(0, args.limit).map(async ({ shop, distance }) => projectShopRow(shop, await shopContext(env, data, shop), distance)),
       );
-      return result({ city: data.site.name, total_matches: total, count: shops.length, shops });
+      // Where the reader sees every match: the area's page when one area was asked for, else all shops.
+      const areas = args.area ? data.city.cityAreas.filter((a) => fold(a.name) === fold(args.area!) || fold(a.slug ?? '') === fold(args.area!)) : [];
+      const seeAll = areas.length === 1 ? await pageUrl(env, data.site, 'areas', areas[0].id) : siteLink(env, `${data.site.siteUrl}/shops`);
+      return result({
+        city: data.site.name,
+        total_matches: total,
+        count: shops.length,
+        shops,
+        see_all: { title: `${areas.length === 1 ? `${areas[0].name} coffee shops` : `All ${data.site.name} coffee shops`} on ${data.site.siteName}`, url: seeAll },
+      });
     },
   );
 
@@ -332,7 +343,7 @@ export function buildServer(env: Env): McpServer {
       const rows = await Promise.all(
         awards.slice(0, limit).map(async (a) => ({
           ...projectAward(a),
-          roaster: { id: a.brand.id, name: a.brand.name, url: await pageUrl(site, 'brands', a.brand.id) },
+          roaster: { id: a.brand.id, name: a.brand.name, url: await pageUrl(env, site, 'brands', a.brand.id) },
         })),
       );
       return result({ city: site.name, count: rows.length, awards: rows });
@@ -352,7 +363,7 @@ export function buildServer(env: Env): McpServer {
       const discover = await api.discover(env, city);
       const events = await Promise.all(
         discover.events.slice(0, limit).map(async (e) => {
-          const url = await pageUrl(site, 'events', e.id);
+          const url = await pageUrl(env, site, 'events', e.id);
           const sources: Source[] = [{ supports: ['name', 'dates', 'venue', 'type'], title: `${e.name} on ${site.siteName}`, publisher: site.siteName, url }];
           if (e.website) sources.push({ supports: ['tickets', 'details'], title: e.name, publisher: null, url: e.website });
           return {
@@ -397,7 +408,7 @@ export function buildServer(env: Env): McpServer {
           results.push({
             id: `shop:${shop.id}`,
             title: `${displayName(shop, brand)}${area ? `, ${area}` : ''} (${site.name})`,
-            url: await pageUrl(site, 'shops', shop.id),
+            url: await pageUrl(env, site, 'shops', shop.id),
             score: hits * 100 + rank(shop),
           });
         }
