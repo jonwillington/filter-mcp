@@ -1,0 +1,38 @@
+name = "filter-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# https://mcp.filter.coffee/mcp (filter.coffee is a Cloudflare zone).
+routes = [{ pattern = "mcp.filter.coffee", custom_domain = true }]
+workers_dev = false
+
+[observability]
+enabled = true
+
+# The v3 API, called Worker to Worker (no public hop, no CORS). Without it (wrangler dev
+# with --remote off) src/api.ts falls back to https://api.filter.coffee.
+[[services]]
+binding = "API"
+service = "filter-api"
+
+# MCP calls per client address. Assistants call from their own servers, so one address is
+# many people: this stops bulk walking of the guide, not normal use.
+[[ratelimits]]
+name = "MCP_LIMITER"
+namespace_id = "3101"
+
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
+# Secrets (wrangler secret put <NAME>):
+#   API_BUILD_KEY - filter-api's BUILD_KEY, sent as x-filter-build-key so the API's own
+#                   per-address limit on shop and brand pages doesn't apply to this Worker
+#                   (every MCP call reaches the API from here). MCP_LIMITER does that job.
+
+# `npm run dev`: no service binding or limiter (bindings aren't inherited by environments),
+# so src/api.ts reads the public https://api.filter.coffee.
+[env.local]
+name = "filter-mcp-local"
+routes = []
