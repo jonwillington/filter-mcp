@@ -188,6 +188,8 @@ export function buildServer(env: Env): McpServer {
       version: SERVER_VERSION,
       websiteUrl: 'https://filter.coffee',
       description: `Specialty coffee shops and roasters in ${cityNames}, researched by editors, every fact with its source.`,
+      // Directories (Smithery and others) read their listing from serverInfo.
+      icons: [{ src: 'https://raw.githubusercontent.com/jonwillington/filter-mcp/main/assets/logo.png', mimeType: 'image/png', sizes: ['1024x1024'] }],
     },
     {
       instructions: INSTRUCTIONS,

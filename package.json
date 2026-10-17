@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --env local",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --env=\"\"",
     "typecheck": "tsc",
     "smoke": "node scripts/smoke.mjs",
     "sync:types": "node scripts/sync-types.mjs",

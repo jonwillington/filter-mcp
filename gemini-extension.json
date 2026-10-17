@@ -1,0 +1,10 @@
+{
+  "name": "filter",
+  "version": "1.0.0",
+  "description": "Specialty coffee shops and roasters in London and Istanbul, every fact with its source.",
+  "mcpServers": {
+    "filter": {
+      "httpUrl": "https://mcp.filter.coffee/mcp"
+    }
+  }
+}
