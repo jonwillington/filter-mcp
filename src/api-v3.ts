@@ -850,6 +850,20 @@ export interface Person {
 export interface PersonWithPicks extends Person {
   /** Picks for shops in the requested city, ordered by rank. */
   picks: PersonPick[];
+  /**
+   * Picks of a brand rather than a shop (a roaster that only sells beans), for brands whose home city or one of whose
+   * shops is in the requested city, ordered by rank. Ranks are shared with `picks`. The brands are in `Discover.brands`.
+   * Added 2026-10-27 (additive).
+   */
+  brandPicks: PersonBrandPick[];
+}
+
+export interface PersonBrandPick {
+  id: string;
+  brandId: string;
+  rank: number | null;
+  description: string | null;
+  translations: Record<string, { description: string }>;
 }
 
 export interface PersonPick {
