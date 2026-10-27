@@ -842,6 +842,8 @@ export interface Person {
   roles: string[];
   affiliation: string | null;
   affiliatedShopId: string | null;
+  /** The brand they work for when no single shop fits (e.g. wholesale across a chain); link `affiliation` to it when `affiliatedShopId` is null. Added 2026-10-27 (additive). */
+  affiliatedBrandId: string | null;
   links: SocialLinks;
   /** `bio` and `affiliation` in other languages, by language code. Added 2026-10-10 (additive). */
   translations: Record<string, { bio: string | null; affiliation: string | null }>;
