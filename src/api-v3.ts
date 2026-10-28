@@ -997,6 +997,11 @@ export interface ProposedUpdateRequest {
   description: string;
   /** Defaults to `shop_update`. */
   updateType?: ProposedUpdateType;
+  /**
+   * Optional: the reader's email, so an editor can follow up. Blank counts as none; anything else
+   * must look like an address (at most 254 characters) or the request is a 400.
+   */
+  email?: string;
 }
 
 /** `data` of the 201 response. */
