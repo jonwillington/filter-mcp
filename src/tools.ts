@@ -14,6 +14,7 @@ import {
   displayName,
   offerForBrand,
   offerForShop,
+  offerLastDay,
   openNow,
   projectOffer,
   projectAward,
@@ -300,7 +301,7 @@ export function buildServer(env: Env): McpServer {
           // Just the tag here; get_shop has the terms. One count per offer, however many rows carry it.
           if (!shown.has(offer.id)) trackOfferView(env, { offerId: offer.id, cityId: offers?.cityId });
           shown.add(offer.id);
-          return { ...row, offer: { tag: offer.tag, ends: offer.endsAt ? offer.endsAt.slice(0, 10) : null } };
+          return { ...row, offer: { tag: offer.tag, ends: offerLastDay(offer.endsAt) } };
         }),
       );
       // Where the reader sees every match: the area's page when one area was asked for, else all shops.

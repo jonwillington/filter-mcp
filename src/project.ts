@@ -354,6 +354,12 @@ export function offerForBrand(offers: CityOffers | null, brandId: string): Offer
   return (id && offers?.offers.find((o) => o.id === id)) || null;
 }
 
+/** The last day an offer runs. `endsAt` is the exclusive end (midnight UTC after that day), so take it minus a second. */
+export function offerLastDay(endsAt: string | null): string | null {
+  const t = endsAt ? Date.parse(endsAt) : NaN;
+  return Number.isNaN(t) ? null : new Date(t - 1000).toISOString().slice(0, 10);
+}
+
 /** A promotion a brand runs at its shops. The terms are the brand's, so the note says so. The source is
  *  the guide page that shows the offer. `shopId` lists that shop first. */
 export function projectOffer(
@@ -370,7 +376,7 @@ export function projectOffer(
     tag: offer.tag,
     details: offer.details,
     terms: offer.terms,
-    ends: offer.endsAt ? offer.endsAt.slice(0, 10) : null,
+    ends: offerLastDay(offer.endsAt),
     run_by: offer.brandName,
     note: `Offer run by ${offer.brandName}. Their terms apply; Filter isn't responsible for it.`,
     redeem: {
