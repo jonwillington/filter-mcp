@@ -805,7 +805,7 @@ export interface Discover {
   cityId: string;
   /** Upcoming and ongoing events, soonest first. */
   events: Event[];
-  /** People with at least one pick in this city, and those picks. */
+  /** People with at least one pick (shop or brand) in this city, and those picks. */
   people: PersonWithPicks[];
   /** News mentioning this city, or a shop or brand in it, newest first. */
   news: NewsArticle[];
@@ -896,6 +896,89 @@ export interface NewsArticle {
   brandIds: string[];
   shopIds: string[];
   cityIds: string[];
+}
+
+// ─── Offers ───────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /v3/cities/:city/offers`, added 2026-10-28 (additive). Promotions brands run at their shops, read live
+ * from the CMS (a change shows within about a minute), so this is the one response not keyed by the content
+ * version. Show at most one offer per shop (`byShop`) and per brand page (`byBrand`); look the offer up in `offers`.
+ */
+export interface CityOffers {
+  cityId: string;
+  /** Only offers some page shows. */
+  offers: Offer[];
+  /** shopId → offerId. A shop's own offer replaces its brand's brand-wide one. */
+  byShop: Record<string, string>;
+  /** brandId → offerId, preferring the brand-wide offer. Includes online offers of brands with no shop here. */
+  byBrand: Record<string, string>;
+}
+
+/** `in-store`: show the addresses. `online`: link and code. `both`: all of it. Treat unknown values as `in-store`. */
+export type OfferRedeem = 'in-store' | 'online' | 'both';
+
+export interface Offer {
+  id: string;
+  brandId: string;
+  /** For the sheet's "Offer from <brand>". */
+  brandName: string;
+  /** The short tag on the shop and brand pages, at most 40 characters ("10% off beans"). */
+  tag: string;
+  /** The full offer for the sheet: the shop's own words. Plain text, may contain line breaks. */
+  details: string;
+  /** Small print, or null. */
+  terms: string | null;
+  /** Optional 16:9 banner for the top of the sheet. */
+  image: Image | null;
+  redeem: OfferRedeem;
+  /** Where to redeem it online. */
+  url: string | null;
+  /** Promo code, for a copy button. */
+  code: string | null;
+  startsAt: string | null;
+  /** Show "Ends 30 Nov" in the sheet when set. Never on the tag. */
+  endsAt: string | null;
+  /** True when it applies to every shop of the brand, including future ones. */
+  allShops: boolean;
+  /** The brand's shops in this city where it applies, by name. On a shop page show that shop first ("Redeem here"), the rest as "Also at". */
+  shops: OfferShop[];
+  /** Other languages of tag, details and terms: `{ "tr": { tag, details, terms } }`. Prefer the reader's language. */
+  translations: Record<string, OfferTranslation>;
+  updatedAt: string | null;
+}
+
+export interface OfferShop {
+  id: string;
+  name: string;
+  /** Branch name; build the display name as for ShopSummary. */
+  prefName: string | null;
+  address: string | null;
+  cityAreaName: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface OfferTranslation {
+  tag: string;
+  details: string;
+  terms: string | null;
+}
+
+/** `view`: the tag was shown. `open`: the sheet was opened. `code`: code copied. `link`: online link opened. `directions`: directions to a shop opened. */
+export type OfferEvent = 'view' | 'open' | 'code' | 'link' | 'directions';
+export type OfferPlatform = 'ios' | 'android' | 'web' | 'mcp';
+
+/**
+ * Body of `POST /v3/offers/events` (added 2026-10-28): one anonymous count for the shop's report. No user, IP or
+ * cookie is stored. Send `view` at most once per offer per screen appearance. `204` on success.
+ */
+export interface OfferEventRequest {
+  offerId: string;
+  event: OfferEvent;
+  platform: OfferPlatform;
+  cityId?: string;
+  shopId?: string;
 }
 
 // ─── Writes ───────────────────────────────────────────────────────────────────

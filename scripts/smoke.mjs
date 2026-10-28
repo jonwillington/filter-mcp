@@ -50,3 +50,6 @@ const found = await call('search', { query: 'kadıköy filter' });
 console.log('search:', found.results.slice(0, 3).map((r) => r.title).join(' / '));
 const fetched = await call('fetch', { id: found.results[0].id });
 console.log('fetch:\n' + fetched.text);
+
+const deals = await call('list_offers', { city: 'istanbul' });
+console.log('\nistanbul offers:', deals.offers.map((o) => `${o.tag} (${o.redeem.how})`).join(' / '));

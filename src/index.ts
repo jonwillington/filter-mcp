@@ -78,11 +78,11 @@ function clientFamily(userAgent: string | null): string {
   return 'assistant';
 }
 
-async function handleMcp(req: Request, env: Env): Promise<Response> {
+async function handleMcp(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const started = Date.now();
   const ops = await operations(req);
   const client = clientFamily(req.headers.get('user-agent'));
-  const server = buildServer({ ...env, CLIENT: client });
+  const server = buildServer({ ...env, CLIENT: client, WAIT_UNTIL: (p) => ctx.waitUntil(p) });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   let status = 500;
@@ -108,7 +108,7 @@ const ABOUT = {
 };
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
@@ -129,7 +129,7 @@ export default {
         }
       }
       try {
-        return withCors(await handleMcp(req, env));
+        return withCors(await handleMcp(req, env, ctx));
       } catch (err) {
         console.error('mcp error', err);
         return withCors(Response.json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error.' }, id: null }, { status: 500 }));

@@ -18,6 +18,8 @@ import type {
   BrewMethods,
   CitedSource,
   CityArea,
+  CityOffers,
+  Offer,
   OpeningHours,
   ShopDetail,
   ShopSummary,
@@ -335,5 +337,60 @@ export function projectBrand(brand: BrandDetail, url: string | null, siteName: s
     awards: brand.awards.map(projectAward),
     links: { website: brand.links.website, instagram: brand.links.instagram },
     sources,
+  };
+}
+
+// ─── Offers ──────────────────────────────────────────────────────────────────
+
+/** The offer a shop page shows (its own, else its brand's), or null. */
+export function offerForShop(offers: CityOffers | null, shopId: string): Offer | null {
+  const id = offers?.byShop[shopId];
+  return (id && offers?.offers.find((o) => o.id === id)) || null;
+}
+
+/** The offer a brand page shows, or null. */
+export function offerForBrand(offers: CityOffers | null, brandId: string): Offer | null {
+  const id = offers?.byBrand[brandId];
+  return (id && offers?.offers.find((o) => o.id === id)) || null;
+}
+
+/** A promotion a brand runs at its shops. The terms are the brand's, so the note says so. The source is
+ *  the guide page that shows the offer. `shopId` lists that shop first. */
+export function projectOffer(
+  offer: Offer,
+  brand: { name: string; type: string | null } | null,
+  source: { url: string; siteName: string } | null,
+  shopId?: string,
+) {
+  const inStore = offer.redeem !== 'online';
+  const online = offer.redeem !== 'in-store';
+  const shops = [...offer.shops].sort((a, b) => Number(b.id === shopId) - Number(a.id === shopId));
+  return {
+    id: offer.id,
+    tag: offer.tag,
+    details: offer.details,
+    terms: offer.terms,
+    ends: offer.endsAt ? offer.endsAt.slice(0, 10) : null,
+    run_by: offer.brandName,
+    note: `Offer run by ${offer.brandName}. Their terms apply; Filter isn't responsible for it.`,
+    redeem: {
+      how: offer.redeem,
+      ...(inStore
+        ? {
+            all_shops: offer.allShops,
+            shops: shops.map((s) => ({
+              id: s.id,
+              name: displayName(s, brand as BrandSummary | null),
+              area: s.cityAreaName,
+              address: s.address,
+            })),
+          }
+        : {}),
+      ...(online ? { url: offer.url, code: offer.code } : {}),
+    },
+    translations: offer.translations,
+    sources: source
+      ? ([{ supports: ['offer'], title: `${offer.brandName} on ${source.siteName}`, publisher: source.siteName, url: source.url }] satisfies Source[])
+      : [],
   };
 }

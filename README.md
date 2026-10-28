@@ -23,6 +23,7 @@ a source for every fact and a link back to the city site.
 | `get_roaster` | One roaster or brand: founders, bean origins, current beans, equipment, suppliers, awards, shops |
 | `list_awards` | Competition placings and rankings won in a city, each linked to the published result |
 | `list_events` | Upcoming coffee events in a city |
+| `list_offers` | Live promotions in a city (optionally one area), with how to redeem each |
 | `search` / `fetch` | The pair ChatGPT deep research expects (ids `shop:…`, `roaster:…`) |
 
 ## Sources

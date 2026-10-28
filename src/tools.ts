@@ -7,12 +7,15 @@ import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validatio
 import { z } from 'zod';
 
 import type { BrandSummary, Catalog, City, ShopSummary } from './api-v3';
-import { api, NotFound, pageUrl, siteForCityId, siteLink, type Env } from './api';
+import { api, NotFound, pageUrl, siteForCityId, siteLink, trackOfferView, type Env } from './api';
 import { CITIES, CITY_SLUGS, cityConfig, type CityConfig } from './cities';
 import {
   BREW_KEYS,
   displayName,
+  offerForBrand,
+  offerForShop,
   openNow,
+  projectOffer,
   projectAward,
   projectBrand,
   projectShop,
@@ -36,7 +39,7 @@ Every record carries "sources": each source lists the fields it supports. When y
 
 Each city has its own site: ${CITIES.map((c) => `${c.name} is ${c.siteName} (${c.siteUrl})`).join(', ')}. When you answer about a city, name its site and link it, and link each shop's page, so the reader can see the photos, map and full write-up there. When search_shops says there are more matches than it returned, give its "see_all" link.
 
-Start with search_shops (by area, brew method, amenity, pick, open now, or near a point) and get_shop for one shop. get_roaster covers a roaster or coffee brand: founders, bean origins, beans and its shops. list_cities lists the areas of each city.`;
+Start with search_shops (by area, brew method, amenity, pick, open now, or near a point) and get_shop for one shop. get_roaster covers a roaster or coffee brand: founders, bean origins, beans and its shops. list_offers lists live promotions; a shop or roaster with one carries it as "offer" (say who runs it and that their terms apply). list_cities lists the areas of each city.`;
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
@@ -126,12 +129,14 @@ async function getShop(env: Env, id: string) {
   const shop = await api.shop(env, id);
   const site = await siteForCityId(env, shop.cityId);
   if (!site) return null;
-  const city = await api.city(env, site.slug);
+  const [city, offers] = await Promise.all([api.city(env, site.slug), api.offers(env, site.slug)]);
   const [url, brandUrl] = await Promise.all([
     pageUrl(env, site, 'shops', shop.id),
     shop.brand ? pageUrl(env, site, 'brands', shop.brand.id) : Promise.resolve(null),
   ]);
-  return projectShop(shop, {
+  const offer = offerForShop(offers, shop.id);
+  if (offer) trackOfferView(env, { offerId: offer.id, cityId: offers?.cityId, shopId: shop.id });
+  const projected = projectShop(shop, {
     site,
     url,
     brand: shop.brand,
@@ -139,6 +144,7 @@ async function getShop(env: Env, id: string) {
     area: shop.cityArea,
     timezone: city.timezone,
   });
+  return { ...projected, offer: offer ? projectOffer(offer, shop.brand, { url, siteName: site.siteName }, shop.id) : null };
 }
 
 async function getRoaster(env: Env, id: string) {
@@ -164,7 +170,17 @@ async function getRoaster(env: Env, id: string) {
     }
   }
   if (!home) return null;
-  return projectBrand(brand, await pageUrl(env, home, 'brands', brand.id), home.siteName, shops);
+  const url = await pageUrl(env, home, 'brands', brand.id);
+  const roaster = projectBrand(brand, url, home.siteName, shops);
+  // The brand page shows one offer: the brand-wide one if it has any, in the first city that has one.
+  for (const site of CITIES) {
+    const offers = await api.offers(env, site.slug);
+    const offer = offerForBrand(offers, brand.id);
+    if (!offer) continue;
+    trackOfferView(env, { offerId: offer.id, cityId: offers?.cityId });
+    return { ...roaster, offer: projectOffer(offer, brand, { url: await pageUrl(env, site, 'brands', brand.id), siteName: site.siteName }) };
+  }
+  return { ...roaster, offer: null };
 }
 
 function notCovered(kind: string, id: string) {
@@ -274,8 +290,18 @@ export function buildServer(env: Env): McpServer {
       rows = args.near
         ? rows.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))
         : rows.sort((a, b) => rank(b.shop) - rank(a.shop));
+      const offers = await api.offers(env, args.city);
+      const shown = new Set<string>();
       const shops = await Promise.all(
-        rows.slice(0, args.limit).map(async ({ shop, distance }) => projectShopRow(shop, await shopContext(env, data, shop), distance)),
+        rows.slice(0, args.limit).map(async ({ shop, distance }) => {
+          const row = projectShopRow(shop, await shopContext(env, data, shop), distance);
+          const offer = offerForShop(offers, shop.id);
+          if (!offer) return row;
+          // Just the tag here; get_shop has the terms. One count per offer, however many rows carry it.
+          if (!shown.has(offer.id)) trackOfferView(env, { offerId: offer.id, cityId: offers?.cityId });
+          shown.add(offer.id);
+          return { ...row, offer: { tag: offer.tag, ends: offer.endsAt ? offer.endsAt.slice(0, 10) : null } };
+        }),
       );
       // Where the reader sees every match: the area's page when one area was asked for, else all shops.
       const areas = args.area ? data.city.cityAreas.filter((a) => fold(a.name) === fold(args.area!) || fold(a.slug ?? '') === fold(args.area!)) : [];
@@ -326,6 +352,38 @@ export function buildServer(env: Env): McpServer {
         },
         () => notCovered('roaster', id),
       ),
+  );
+
+  server.registerTool(
+    'list_offers',
+    {
+      title: 'Offers in a city',
+      description:
+        "Live promotions that roasters and shops run in the city (\"10% off beans\", a free cookie with a V60), with how to redeem each. Optionally only those redeemable in one area. Each offer is run by its brand and its terms apply.",
+      inputSchema: {
+        city: citySchema,
+        area: z.string().max(80).optional().describe('An area name from list_cities, e.g. "Kadıköy". Online-only offers are left out when given.'),
+        limit: z.number().int().min(1).max(MAX_ROWS).default(25),
+      },
+      annotations: { ...READ_ONLY, title: 'Offers in a city' },
+    },
+    async ({ city, area, limit }) => {
+      const site = cityConfig(city)!;
+      const [data, offers] = await Promise.all([cityData(env, city), api.offers(env, city)]);
+      const want = area ? fold(area) : null;
+      const matching = (offers?.offers ?? []).filter(
+        (o) => !want || o.shops.some((s) => fold(s.cityAreaName ?? '').includes(want)),
+      );
+      const rows = await Promise.all(
+        matching.slice(0, limit).map(async (o) => {
+          trackOfferView(env, { offerId: o.id, cityId: offers?.cityId });
+          const brand = data.brands.get(o.brandId) ?? { name: o.brandName, type: null };
+          const scoped = want ? { ...o, shops: o.shops.filter((s) => fold(s.cityAreaName ?? '').includes(want)) } : o;
+          return projectOffer(scoped, brand, { url: await pageUrl(env, site, 'brands', o.brandId), siteName: site.siteName });
+        }),
+      );
+      return result({ city: site.name, count: rows.length, offers: rows });
+    },
   );
 
   server.registerTool(
@@ -456,6 +514,7 @@ function describeShop(s: NonNullable<Awaited<ReturnType<typeof getShop>>>): stri
   if (s.brew_methods.length) lines.push(`Brew methods: ${s.brew_methods.join(', ')}`);
   for (const p of s.picks) lines.push(`Editors' pick (${p.pick})${p.reason ? `: ${p.reason}` : ''}`);
   if (s.opening_hours) lines.push(`Hours: ${s.opening_hours.join('; ')}`);
+  if (s.offer) lines.push(describeOffer(s.offer));
   for (const a of s.awards) lines.push(`Award: ${a.award} ${a.year ?? ''} ${a.placement} (${a.source.url})`);
   lines.push(`Page: ${s.url}`);
   return lines.join('\n');
@@ -466,8 +525,14 @@ function describeRoaster(r: NonNullable<Awaited<ReturnType<typeof getRoaster>>>)
   if (r.statement) lines.push(r.statement);
   if (r.founder) lines.push(`Founded by ${r.founder}${r.founded ? ` in ${r.founded}` : ''}`);
   if (r.bean_origins.length) lines.push(`Bean origins: ${r.bean_origins.join(', ')}`);
+  if (r.offer) lines.push(describeOffer(r.offer));
   if (r.shops.length) lines.push(`Shops: ${r.shops.map((s) => s.name).join('; ')}`);
   for (const a of r.awards) lines.push(`Award: ${a.award} ${a.year ?? ''} ${a.placement} (${a.source.url})`);
   if (r.url) lines.push(`Page: ${r.url}`);
   return lines.join('\n');
+}
+
+function describeOffer(o: ReturnType<typeof projectOffer>): string {
+  const how = [o.redeem.url, o.redeem.code ? `code ${o.redeem.code}` : null].filter(Boolean).join(', ');
+  return `Offer: ${o.tag}. ${o.details}${o.ends ? ` Ends ${o.ends}.` : ''}${how ? ` Online: ${how}.` : ''}${o.terms ? ` Terms: ${o.terms}` : ''} ${o.note}`;
 }

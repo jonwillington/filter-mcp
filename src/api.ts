@@ -1,7 +1,7 @@
 // Reads the v3 API (filter-api) and each city site's slug map. Nothing here touches a
 // database: the MCP server sees exactly what the apps and sites see (published records only).
 
-import type { BrandDetail, Catalog, CityAward, CityListItem, City, Discover, ShopDetail } from './api-v3';
+import type { BrandDetail, Catalog, CityAward, CityListItem, City, CityOffers, Discover, OfferEventRequest, ShopDetail } from './api-v3';
 import { CITIES, type CityConfig } from './cities';
 
 export interface Env {
@@ -13,6 +13,8 @@ export interface Env {
   /** Set per request in src/index.ts: the assistant family calling (chatgpt, claude, …),
    *  tagged onto every link so the sites' analytics can count the visits it sends. */
   CLIENT?: string;
+  /** Set per request in src/index.ts: keeps fire-and-forget work (offer view counts) alive after the response. */
+  WAIT_UNTIL?: (promise: Promise<unknown>) => void;
 }
 
 const PUBLIC_API = 'https://api.filter.coffee';
@@ -21,10 +23,12 @@ const PUBLIC_API = 'https://api.filter.coffee';
  *  this only saves the hop for the big city payloads within one warm isolate. */
 const memo = new Map<string, { at: number; value: Promise<unknown> }>();
 const TTL_MS = 5 * 60 * 1000;
+/** Offers are read live from the CMS by the API (cached there for 60 s), so we hold them no longer than that. */
+const OFFERS_TTL_MS = 60 * 1000;
 
-function remember<T>(key: string, load: () => Promise<T>): Promise<T> {
+function remember<T>(key: string, load: () => Promise<T>, ttl = TTL_MS): Promise<T> {
   const hit = memo.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.value as Promise<T>;
+  if (hit && Date.now() - hit.at < ttl) return hit.value as Promise<T>;
   const value = load();
   memo.set(key, { at: Date.now(), value });
   value.catch(() => memo.delete(key));
@@ -50,9 +54,28 @@ export const api = {
   awards: (env: Env, slug: string) => remember(`awards:${slug}`, () => v3<CityAward[]>(env, `/v3/cities/${slug}/awards`)),
   discover: (env: Env, slug: string) =>
     remember(`discover:${slug}`, () => v3<Discover>(env, `/v3/cities/${slug}/discover?events=50&news=0`)),
+  /** The city's live offers, or null when they can't be read: an offers failure never fails a tool call. */
+  offers: (env: Env, slug: string): Promise<CityOffers | null> =>
+    remember(`offers:${slug}`, () => v3<CityOffers>(env, `/v3/cities/${slug}/offers`).catch(() => null), OFFERS_TTL_MS),
   shop: (env: Env, id: string) => v3<ShopDetail>(env, `/v3/shops/${encodeURIComponent(id)}`),
   brand: (env: Env, id: string) => v3<BrandDetail>(env, `/v3/brands/${encodeURIComponent(id)}`),
 };
+
+/** One anonymous `view` count for an offer that was included in a response. Fire-and-forget:
+ *  never awaited by the tool, never retried, errors swallowed. */
+export function trackOfferView(env: Env, event: Omit<OfferEventRequest, 'event' | 'platform'>): void {
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'user-agent': 'filter-mcp' };
+  if (env.API_BUILD_KEY) headers['x-filter-build-key'] = env.API_BUILD_KEY;
+  const body: OfferEventRequest = { ...event, event: 'view', platform: 'mcp' };
+  const init = { method: 'POST', headers, body: JSON.stringify(body) };
+  const url = `${PUBLIC_API}/v3/offers/events`;
+  try {
+    const sent = (env.API ? env.API.fetch(url, init) : fetch(url, init)).catch(() => {});
+    env.WAIT_UNTIL?.(sent);
+  } catch {
+    // Counting is best effort.
+  }
+}
 
 // ─── Links to the city sites ─────────────────────────────────────────────────
 
