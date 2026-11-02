@@ -204,6 +204,16 @@ export interface ShopContext {
   timezone: string | null;
 }
 
+/**
+ * A temporary closure (API RESPONSE_SHAPE 28), set by hand by the editors: the shop is shut for a while (a move,
+ * a refit, a holiday). It stays listed so the assistant can say so; open_now is false while it is set.
+ */
+function temporaryClosure(shop: ShopSummary) {
+  const c = shop.temporaryClosure;
+  if (!c) return null;
+  return { reason: c.reason, note: c.note, since: c.since, reopens_on: c.reopensOn, moved_to_shop_id: c.movedToShopId, more_info: c.link?.url ?? null };
+}
+
 /** One row of search_shops: enough to choose, with get_shop for the rest. */
 export function projectShopRow(shop: ShopSummary, ctx: ShopContext, distanceMetres: number | null) {
   const name = displayName(shop, ctx.brand);
@@ -214,7 +224,8 @@ export function projectShopRow(shop: ShopSummary, ctx: ShopContext, distanceMetr
     area: ctx.area?.name ?? null,
     address: shop.address,
     distance_metres: distanceMetres,
-    open_now: openNow(shop.openingHours, ctx.timezone),
+    open_now: shop.temporaryClosure ? false : openNow(shop.openingHours, ctx.timezone),
+    temporarily_closed: temporaryClosure(shop),
     roaster: ctx.brand ? { id: ctx.brand.id, name: ctx.brand.name, roasts_own_beans: ctx.brand.roastsOwnBeans } : null,
     brew_methods: brewMethods(shop.brewMethods),
     amenities: known(shop.amenities),
@@ -254,6 +265,7 @@ export function projectShop(shop: ShopDetail, ctx: ShopContext) {
     ...cited(shop.citedSources, ['research']),
   ];
   if (shop.links.website) sources.push({ supports: ['website'], title: `${name} website`, publisher: name, url: shop.links.website });
+  if (shop.temporaryClosure?.link) sources.push({ supports: ['temporarily_closed'], title: `${name}: temporary closure`, publisher: shop.temporaryClosure.link.host, url: shop.temporaryClosure.link.url });
 
   return {
     id: shop.id,
@@ -266,7 +278,8 @@ export function projectShop(shop: ShopDetail, ctx: ShopContext) {
     coordinates: shop.coordinates,
     opening_hours: hoursLines(shop.openingHours),
     timezone: ctx.timezone,
-    open_now: openNow(shop.openingHours, ctx.timezone),
+    open_now: shop.temporaryClosure ? false : openNow(shop.openingHours, ctx.timezone),
+    temporarily_closed: temporaryClosure(shop),
     roaster: ctx.brand
       ? {
           id: ctx.brand.id,

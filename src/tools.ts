@@ -36,6 +36,8 @@ const INSTRUCTIONS = `Filter is an editorial guide to specialty coffee shops and
 
 Every record carries "sources": each source lists the fields it supports. When you state a fact, cite the source that supports that field, and link the shop or roaster page ("url") so the reader can see photos and the full write-up. Amenities and brew methods list only what is known: a missing key means unknown, not "no".
 
+"temporarily_closed" is set when the editors know a shop is shut for a while (a move, a refit, a holiday): say so before recommending it, give its note, and its reopening date or "moved_to_shop_id" (look that shop up with get_shop) when there is one. Its open_now is false.
+
 "picks" are the editors' recommendations: "working" (good for working on a laptop), "interior" (a standout room) and "neighbourhood" (a pick for its area), each with the editors' reason.
 
 Each city has its own site: ${CITIES.map((c) => `${c.name} is ${c.siteName} (${c.siteUrl})`).join(', ')}. When you answer about a city, name its site and link it, and link each shop's page, so the reader can see the photos, map and full write-up there. When search_shops says there are more matches than it returned, give its "see_all" link.
@@ -510,6 +512,7 @@ export function buildServer(env: Env): McpServer {
 
 function describeShop(s: NonNullable<Awaited<ReturnType<typeof getShop>>>): string {
   const lines = [`${s.name}, ${[s.area?.name, s.city].filter(Boolean).join(', ')}`];
+  if (s.temporarily_closed) lines.push(`Temporarily closed${s.temporarily_closed.note ? `: ${s.temporarily_closed.note}` : ''}${s.temporarily_closed.reopens_on ? ` Reopens ${s.temporarily_closed.reopens_on}.` : ''}`);
   if (s.address) lines.push(`Address: ${s.address}`);
   if (s.roaster) lines.push(`Roaster: ${s.roaster.name}${s.roaster.statement ? `. ${s.roaster.statement}` : ''}`);
   if (s.brew_methods.length) lines.push(`Brew methods: ${s.brew_methods.join(', ')}`);

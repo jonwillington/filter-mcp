@@ -322,6 +322,29 @@ export interface ShopSummary {
   /** Taste-matching tags, e.g. { look: { minimal: 1 }, special: { roastery: 2 } }. */
   preferenceProfile: Record<string, Record<string, number>> | null;
   updatedAt: string | null;
+  /**
+   * Set while the shop is temporarily closed (a move, a refit, a holiday), by hand in the CMS; null when open.
+   * While set, `openingHours` is null, the shop is left out of recommend and similar results, and clients show a
+   * "Temporarily closed" pill and the note. Permanent closures are unpublished instead. Since RESPONSE_SHAPE 28.
+   */
+  temporaryClosure: TemporaryClosure | null;
+}
+
+export type TemporaryClosureReason = 'moving' | 'renovation' | 'holiday' | 'seasonal' | 'other';
+
+export interface TemporaryClosure {
+  /** Unknown future values arrive as 'other'. */
+  reason: TemporaryClosureReason;
+  /** One reader-facing line, e.g. "Closed in Karaköy while the roastery moves to Kadıköy." Translated in `translations[lang].closureNote`. */
+  note: string | null;
+  /** A page that explains it (post, article), with its host for the label ("Read more on instagram.com"). Often null. */
+  link: { url: string; host: string } | null;
+  /** YYYY-MM-DD. */
+  since: string | null;
+  /** YYYY-MM-DD, when a reopening date was announced. Can be in the past: the flag is cleared by hand. */
+  reopensOn: string | null;
+  /** After a move: the shop that replaces this one, once we hold it (it may not be published yet; fetch it and ignore a 404). */
+  movedToShopId: string | null;
 }
 
 export interface GoogleRating {
@@ -358,6 +381,8 @@ export interface ShopTranslation {
   cityAreaReason: string | null;
   workingReason: string | null;
   interiorReason: string | null;
+  /** TemporaryClosure.note in this language; null when the shop is open. Since RESPONSE_SHAPE 28. */
+  closureNote: string | null;
 }
 
 export interface Recommendations {
@@ -580,6 +605,11 @@ export interface BrandDetail extends BrandSummary {
    * most brands. No prices: `subscribeUrl` is the roaster's subscription page. Added 2026-10-08 (additive).
    */
   subscriptions: CoffeeSubscription[];
+  /**
+   * Upcoming and ongoing events at any of the brand's shops, or hosted by the brand, soonest first.
+   * Added 2026-10-30 (additive).
+   */
+  events: Event[];
 }
 
 /** A maker of coffee equipment. Added 2026-10-13 (additive). */
@@ -896,6 +926,15 @@ export interface NewsArticle {
   brandIds: string[];
   shopIds: string[];
   cityIds: string[];
+  /** The monthly issue that cites this story (matched on its source URL), for "From London in October ›". Added 2026-10-30 (additive). */
+  feature?: NewsFeatureRef | null;
+}
+
+/** Where a story ran in a monthly issue: link to /monthly/{month}#s-{sectionId}. */
+export interface NewsFeatureRef {
+  month: string;
+  sectionId: string;
+  title: string;
 }
 
 // ─── Offers ───────────────────────────────────────────────────────────────────
@@ -937,7 +976,10 @@ export interface Offer {
   /** Promo code, for a copy button. */
   code: string | null;
   startsAt: string | null;
-  /** Show "Ends 30 Nov" in the sheet when set. Never on the tag. */
+  /**
+   * When it stops (exclusive): midnight UTC after the last day it runs. Show "Ends <date>" in the sheet using the
+   * date of (endsAt minus 1 second) in UTC, so 2026-12-01T00:00:00Z reads "Ends 30 Nov". Never on the tag.
+   */
   endsAt: string | null;
   /** True when it applies to every shop of the brand, including future ones. */
   allShops: boolean;
@@ -1010,4 +1052,164 @@ export interface ProposedUpdateReceipt {
   id: string | null;
   shopId: string;
   status: 'pending';
+}
+
+// ─── Monthly city features (2026-10-30) ──────────────────────────────────────
+
+/**
+ * The monthly city issue ("London in October"): GET /v3/cities/:city/features, newest first, published only. Read live
+ * from the CMS, so a published issue shows within a minute. Shops, brands and events are referred to by id: look them up
+ * in the city catalog. Our own stories carry `source` (the brand's post); trade-press stories carry `press`.
+ */
+export interface CityFeatures {
+  cityId: string;
+  features: CityFeature[];
+}
+
+export interface CityFeature {
+  id: string;
+  cityId: string;
+  /** The month it covers, YYYY-MM; also its web path (/monthly/2026-10). */
+  month: string;
+  issue: number | null;
+  seriesName: string | null;
+  title: string;
+  statement: string | null;
+  intro: string | null;
+  /** The cover photo is this shop's featured image. */
+  heroShopId: string | null;
+  sections: FeatureSection[];
+  /** Other languages, keyed by code (Istanbul: `tr`). Anything missing falls back to the English. */
+  translations: Record<string, FeatureTranslation> | null;
+  publishedAt: string | null;
+}
+
+export interface FeatureSection {
+  id: string;
+  heading: string;
+  items: FeatureItem[];
+}
+
+export type FeatureItem = FeatureStoryItem | FeatureQuoteItem | FeatureOpeningItem | FeatureEventItem | FeaturePickItem;
+
+/** Where something was first said: the platform ("Instagram") and the post. */
+export interface FeatureSource {
+  name: string;
+  url: string;
+}
+
+export interface FeatureStoryItem {
+  kind: 'story';
+  /** cover: the issue's cover story, in type (the cover is its photo). feature: a card with the shop's photo. brief: a line in a list. */
+  size: 'cover' | 'feature' | 'brief';
+  /** "New coffee", "Award", "Opening"…, shown above the headline. */
+  category?: string | null;
+  title: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  take: string;
+  links?: StoryLink[];
+  brandIds?: string[];
+  shopIds?: string[];
+  press?: { publisher: string; author?: string | null; url: string } | null;
+  source?: FeatureSource | null;
+  /** The short line a brand page shows for this story. */
+  brandNote?: string | null;
+  /** The brand's own photo from the cited post, copied into our media store. */
+  image?: Image | null;
+}
+
+export interface FeatureQuoteItem {
+  kind: 'quote';
+  text: string;
+  attribution: string;
+}
+
+export interface FeatureOpeningItem {
+  kind: 'opening';
+  status: 'opened' | 'soon';
+  name: string;
+  where: string;
+  /** "18 Oct", "November": as precise as we know it. */
+  when: string;
+  take: string;
+  links?: StoryLink[];
+  shopId?: string | null;
+  brandId?: string | null;
+  brandNote?: string | null;
+  source?: FeatureSource | null;
+  image?: Image | null;
+}
+
+export interface FeatureEventItem {
+  kind: 'event';
+  name: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  time?: string | null;
+  venue: string;
+  /** The organiser's public page, when there is one. */
+  url?: string | null;
+  organiser?: string | null;
+  take: string;
+  links?: StoryLink[];
+  shopId?: string | null;
+  source?: FeatureSource | null;
+  /** The CMS event, when the issue's date is one. */
+  eventId?: string | null;
+}
+
+export interface FeaturePickItem {
+  kind: 'pick';
+  personId: string;
+  shopId: string;
+  quote: string;
+}
+
+/** One language's text for an issue, keyed by section id and item position. */
+export interface FeatureTranslation {
+  issue?: { title?: string; statement?: string; intro?: string };
+  sections?: Record<string, string>;
+  categories?: Record<string, string>;
+  items?: Array<{ section: string; index: number; title?: string; name?: string; take?: string; brandNote?: string; when?: string; where?: string; time?: string }>;
+}
+
+// ─── Push notifications ───────────────────────────────────────────────────────
+
+/** What a device can subscribe to. Unknown values sent by newer apps are dropped on registration, not rejected. Added 2026-10-30 (additive). */
+export type PushTopic = 'monthly';
+
+/** Added 2026-10-30 (additive). */
+export type DevicePlatform = 'ios' | 'android';
+
+/** APNs environment the token belongs to: TestFlight and App Store builds are `production`, Xcode debug runs `sandbox`. Added 2026-10-30 (additive). */
+export type PushEnvironment = 'production' | 'sandbox';
+
+/**
+ * `PUT /v3/devices` body: registers or updates a device by token (204). An empty `topics` array opts the device out
+ * of everything but keeps its record. Added 2026-10-30 (additive).
+ */
+export interface DeviceRegistration {
+  /** APNs device token as hex (iOS), or the FCM registration token (Android). */
+  token: string;
+  platform: DevicePlatform;
+  environment: PushEnvironment;
+  /** The app's bundle ID (the APNs topic); must be one the API knows. */
+  appId: string;
+  /** The city document ID the app is built for. */
+  cityId: string;
+  /** The reader's language code ("en", "tr", "pt-BR"); picks the translated issue title. */
+  language: string;
+  topics: PushTopic[];
+  /** Brands the reader loves (max 500). Stored for later; not used for sending yet. */
+  brandIds?: string[];
+}
+
+/** The `filter` object in a push payload, next to `aps`. Added 2026-10-30 (additive). */
+export interface PushPayloadFilter {
+  kind: 'feature';
+  cityId: string;
+  /** YYYY-MM. */
+  month: string;
+  featureId: string;
 }
