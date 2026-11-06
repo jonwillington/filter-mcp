@@ -96,7 +96,7 @@ function slugMaps(site: CityConfig): Promise<SlugMaps> {
   });
 }
 
-const ROUTES: Record<SlugKind, string> = { shops: '/shop', brands: '/roaster', areas: '/area', events: '/guide/event' };
+const ROUTES: Record<SlugKind, string> = { shops: '/shop', brands: '/brand', areas: '/area', events: '/guide/event' };
 
 /** A link to the city site, tagged with the assistant that sent the reader (Google Analytics
  *  reads utm_source / utm_medium; ChatGPT adds its own utm_source, which wins). */
