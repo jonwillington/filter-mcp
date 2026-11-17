@@ -1,11 +1,11 @@
-// Copies the v3 contract from filter-website (canonical) into src/api-v3.ts.
-// --check fails when they differ. FILTER_WEBSITE_PATH overrides the sibling path.
+// Copies the v3 contract from filter-city-web (canonical) into src/api-v3.ts.
+// --check fails when they differ. FILTER_CITY_WEB_PATH overrides the sibling path.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = resolve(root, process.env.FILTER_WEBSITE_PATH ?? '../filter-website', 'types/api-v3.ts');
+const source = resolve(root, process.env.FILTER_CITY_WEB_PATH ?? '../filter-city-web', 'types/api-v3.ts');
 const target = resolve(root, 'src/api-v3.ts');
 const want = readFileSync(source, 'utf8');
 const have = readFileSync(target, 'utf8');

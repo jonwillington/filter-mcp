@@ -57,7 +57,7 @@ npm install
 npm run dev        # wrangler dev against the public api.filter.coffee
 npm run smoke      # calls every tool against localhost:8787 (MCP_URL=… for production)
 npm run typecheck
-npm run sync:types # copy types/api-v3.ts from filter-website (FILTER_WEBSITE_PATH to override)
+npm run sync:types # copy types/api-v3.ts from filter-city-web (FILTER_CITY_WEB_PATH to override)
 ```
 
 ## Deploy
